@@ -10,49 +10,48 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 )
 
-var post = flag.String("post", "", "HTTP address to make a POST request to.  data will be in the body.")
-var get = flag.String("get", "", "HTTP address to make a GET request to. '%s' will be printf replaced with data.")
-var numPublishers = flag.Int("n", 5, "Number of concurrent publishers")
+var addr = flag.String("addr", "http://localhost", "HTTP address to make a request to.")
+var method = flag.String("method", "GET", "HTTP request method.")
+var contentType = flag.String("content-type", "application/octet-stream", "HTTP header content type.")
+var numPublishers = flag.Int("n", runtime.NumCPU()*3, "Number of concurrent publishers")
 var showVersion = flag.Bool("version", false, "print version string")
 
-const VERSION = "0.3"
+const VERSION = "0.4.0"
 
-type Publisher interface {
-	Publish(string) error
+type Publisher struct {
+	addr        string
+	httpMethod  string
+	contentType string
 }
 
-type PublisherInfo struct {
-	addr string
-}
+func (p *Publisher) Publish(msg string) error {
 
-type PostPublisher struct {
-	PublisherInfo
-}
+	var buf *bytes.Buffer
+	endpoint := p.addr
 
-func (p *PostPublisher) Publish(msg string) error {
-	buf := bytes.NewBuffer([]byte(msg))
-	resp, err := http.Post(p.addr, "application/octet-stream", buf)
+	switch p.httpMethod {
+	case "GET":
+		endpoint = fmt.Sprintf(p.addr, url.QueryEscape(msg))
+	default:
+		buf = bytes.NewBuffer([]byte(msg))
+	}
+	client := &http.Client{}
+	req, err := http.NewRequest(p.httpMethod, endpoint, buf)
+
+	if p.contentType != "" {
+		req.Header.Add("Content-Type", p.contentType)
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
-	return nil
-}
 
-type GetPublisher struct {
-	PublisherInfo
-}
-
-func (p *GetPublisher) Publish(msg string) error {
-	endpoint := fmt.Sprintf(p.addr, url.QueryEscape(msg))
-	resp, err := http.Get(endpoint)
-	if err != nil {
-		return err
-	}
 	resp.Body.Close()
 	return nil
 }
@@ -75,22 +74,16 @@ func main() {
 		return
 	}
 
-	var publisher Publisher
-	if len(*post) > 0 {
-		publisher = &PostPublisher{PublisherInfo{*post}}
-	} else if len(*get) > 0 {
-		if strings.Count(*get, "%s") != 1 {
-			log.Fatal("Invalid get address - must be a format string")
-		}
-		publisher = &GetPublisher{PublisherInfo{*get}}
-	} else {
-		log.Fatal("Need get or post address!")
+	httpMethod := strings.ToUpper(*method)
+	if httpMethod == "GET" && strings.Count(*addr, "%s") != 1 {
+		log.Fatal("Invalid get address - must be a format string")
 	}
 
 	msgsChan := make(chan string)
 	waitGroup := &sync.WaitGroup{}
 	waitGroup.Add(*numPublishers)
 	for i := 0; i < *numPublishers; i++ {
+		publisher := Publisher{addr: *addr, httpMethod: httpMethod}
 		go PublishLoop(waitGroup, publisher, msgsChan)
 	}
 
