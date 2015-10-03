@@ -82,10 +82,10 @@ func PublishLoop(waitGroup *sync.WaitGroup, pub Publisher, publishMsgs chan stri
 func main() {
 	addr := flag.String("addr", "http://localhost", "HTTP address to make a request to.")
 	method := flag.String("method", "GET", "HTTP request method.")
-	contentType := flag.String("content-type", "application/octet-stream", "HTTP header content type.")
-	numPublishers := flag.Int("n", runtime.NumCPU()*3, "Number of concurrent publishers")
-	transJsonURL := flag.String("transform-json-url", "", "")
-	transTSFields := flag.String("transform-ts-fields", "", "")
+	contentType := flag.String("content-type", "application/octet-stream", "HTTP header content type, set to empty to not send the header.")
+	numPublishers := flag.Int("n", runtime.NumCPU()*5, "Number of concurrent publishers, default is NumCPU()*5")
+	transJsonURL := flag.String("transform-json-url", "", "format: KEY_TO_REPLACE:JSON_FIELD;KEY_TO_REPLACE:JSON_FIELD")
+	transTSFields := flag.String("transform-ts-fields", "", "comma seprated list of fields that are unix timestamps and should be multiplied with 1000")
 	showVersion := flag.Bool("version", false, "print version string")
 	flag.Parse()
 
@@ -95,8 +95,11 @@ func main() {
 	}
 
 	httpMethod := strings.ToUpper(*method)
+	if *addr == "" || httpMethod == "" {
+		log.Fatal("Invalid config")
+	}
 	if httpMethod == "GET" && strings.Count(*addr, "%s") != 1 {
-		log.Fatal("Invalid get address - must be a format string")
+		log.Fatal("Invalid address for GET - must be a format string")
 	}
 
 	msgsChan := make(chan string)
